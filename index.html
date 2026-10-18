@@ -176,9 +176,38 @@ summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 .formula { font-family: var(--f-num); font-size: 12.5px; line-height: 1.7; background: var(--bg); border-radius: 8px; padding: 10px 12px; overflow-x: auto; white-space: pre; margin: 0; }
 .tag { font-size: 11px; color: var(--k2); margin-left: 4px; font-family: var(--f-body); }
 
+.printonly { display: none; }
+.conds { width: 100%; font-size: 13px; }
+.conds th { width: 9em; color: var(--muted); font-weight: 400; }
+.conds td { white-space: normal; }
+
 .copyfb { font-family: var(--f-num); font-size: 13px; min-height: 160px; }
 .foot { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
 .foot p { margin: 0; }
+
+/* 印刷・PDF：白地の一枚ものにし、操作部品は出さない */
+@media print {
+  :root:root:root {
+    --bg: #ffffff; --surface: #ffffff; --field: #ffffff; --ink: #000000; --muted: #444444; --line: #bbbbbb;
+    --accent: #0b5d64; --accent-ink: #ffffff; --accent-soft: #d8e9ea;
+    --k1: #1b6f41; --k1-bg: #e0f1e6; --k2: #8a5900; --k2-bg: #fbefd3; --k3: #ad231b; --k3-bg: #fbe1de;
+    color-scheme: light;
+  }
+  @page { size: A4; margin: 14mm 12mm; }
+  body { padding: 0; font-size: 12px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .wrap { max-width: none; gap: 12px; }
+  .panel, .actions, .copyfb, .lede, .msg.err, .noprint { display: none !important; }
+  th, td { padding: 5px 10px; }
+  .proc h3 { break-after: avoid; }
+  .printonly { display: block; }
+  h1 { font-size: 20px; }
+  summary { list-style: none; padding: 8px 12px; }
+  summary::-webkit-details-marker { display: none; }
+  .tablewrap { overflow: visible; }
+  .formula { white-space: pre-wrap; }
+  .verdict, .formula, tr, .printonly { break-inside: avoid; }
+  .verdict { transition: none; }
+}
 
 @media (prefers-reduced-motion: no-preference) {
   .verdict { transition: background-color .2s, border-color .2s; }
@@ -261,6 +290,13 @@ summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
     </div>
   </section>
 
+  <section class="block printonly" aria-labelledby="hConds">
+    <h2 id="hConds">測定条件</h2>
+    <div class="tablewrap">
+      <table class="conds" id="tConds"></table>
+    </div>
+  </section>
+
   <section class="verdict" id="verdict" aria-live="polite" hidden>
     <div>
       <p class="eyebrow" id="vEyebrow">管理区分</p>
@@ -279,12 +315,13 @@ summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
   </section>
 
   <details id="proc">
-    <summary>計算過程を見る</summary>
+    <summary>計算過程<span class="noprint">を見る</span></summary>
     <div class="proc" id="procBody"></div>
   </details>
 
   <div class="actions">
     <button type="button" class="btn primary" id="btnCopy">結果をコピー</button>
+    <button type="button" class="btn" id="btnPrint">印刷 / PDF</button>
     <span class="msg" id="msgCopy" role="status"></span>
   </div>
   <textarea id="copyFallback" class="copyfb" readonly hidden aria-label="結果のテキスト"></textarea>
@@ -562,6 +599,7 @@ function classify(EA1, EA2, B, E) {
     }
 
     renderProc(dayIdx, res, ev, E, mA, days);
+    renderConds(st, E, loq, mA, mB, U);
     lastText = buildText(st, dayIdx, res, ev, kubun, Bmax, E, U, mA, mB, days, repl, hasErr);
     prevUnit = st.unit;
     save();
@@ -577,6 +615,28 @@ function classify(EA1, EA2, B, E) {
     if (ev.EA2 > E) r.push('第2評価値が管理濃度を超える');
     if (hasB && B > 1.5 * E) r.push(mB + '測定値が管理濃度の1.5倍を超える');
     return r.join('、');
+  }
+
+  // 印刷用の測定条件
+  function renderConds(st, E, loq, mA, mB, U) {
+    var us = U ? ' ' + U : '';
+    var rows = [
+      ['測定方法', mA + '・' + mB + '測定（' + (st.days === 2 ? '2日' : '1日') + '）'],
+      ['管理濃度', E > 0 ? sig(E, 4) + us : '（未入力）'],
+      ['単位', st.unit],
+      [mB + '測定値', st.B.trim() ? st.B.trim() + us : '（なし）'],
+      ['定量下限', loq > 0 ? sig(loq, 4) + us : '（未入力）'],
+      ['1/10 の扱い', st.tenth ? '管理濃度の1/10未満を1/10とみなす（第2条第3項を適用）' : '適用しない'],
+      ['印刷日時', printedAt()]
+    ];
+    $('tConds').innerHTML = '<tbody>' + rows.map(function (r) {
+      return '<tr><th>' + esc(r[0]) + '</th><td>' + esc(r[1]) + '</td></tr>';
+    }).join('') + '</tbody>';
+  }
+  function printedAt() {
+    var d = new Date();
+    function p2(n) { return (n < 10 ? '0' : '') + n; }
+    return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
   }
 
   function renderProc(dayIdx, res, ev, E, mA, days) {
@@ -675,6 +735,16 @@ function classify(EA1, EA2, B, E) {
       } else { fallback(); }
     } catch (e) { fallback(); }
   });
+
+  // 印刷時は計算過程を開き、日時を更新する。Ctrl+P などからの印刷も同じ扱い
+  var procWasOpen = false, printing = false;
+  window.addEventListener('beforeprint', function () {
+    if (!printing) { procWasOpen = $('proc').open; printing = true; }
+    $('proc').open = true;
+    render();
+  });
+  window.addEventListener('afterprint', function () { $('proc').open = procWasOpen; printing = false; });
+  $('btnPrint').addEventListener('click', function () { window.print(); });
 
   if (!load()) { writeState(SAMPLE); isSample = true; }
   render();
