@@ -176,9 +176,38 @@ summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 .formula { font-family: var(--f-num); font-size: 12.5px; line-height: 1.7; background: var(--bg); border-radius: 8px; padding: 10px 12px; overflow-x: auto; white-space: pre; margin: 0; }
 .tag { font-size: 11px; color: var(--k2); margin-left: 4px; font-family: var(--f-body); }
 
+.printonly { display: none; }
+.conds { width: 100%; font-size: 13px; }
+.conds th { width: 9em; color: var(--muted); font-weight: 400; }
+.conds td { white-space: normal; }
+
 .copyfb { font-family: var(--f-num); font-size: 13px; min-height: 160px; }
 .foot { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
 .foot p { margin: 0; }
+
+/* 印刷・PDF：白地の一枚ものにし、操作部品は出さない */
+@media print {
+  :root:root:root {
+    --bg: #ffffff; --surface: #ffffff; --field: #ffffff; --ink: #000000; --muted: #444444; --line: #bbbbbb;
+    --accent: #0b5d64; --accent-ink: #ffffff; --accent-soft: #d8e9ea;
+    --k1: #1b6f41; --k1-bg: #e0f1e6; --k2: #8a5900; --k2-bg: #fbefd3; --k3: #ad231b; --k3-bg: #fbe1de;
+    color-scheme: light;
+  }
+  @page { size: A4; margin: 14mm 12mm; }
+  body { padding: 0; font-size: 12px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .wrap { max-width: none; gap: 12px; }
+  .panel, .actions, .copyfb, .lede, .msg.err, .noprint { display: none !important; }
+  th, td { padding: 5px 10px; }
+  .proc h3 { break-after: avoid; }
+  .printonly { display: block; }
+  h1 { font-size: 20px; }
+  summary { list-style: none; padding: 8px 12px; }
+  summary::-webkit-details-marker { display: none; }
+  .tablewrap { overflow: visible; }
+  .formula { white-space: pre-wrap; }
+  .verdict, .formula, tr, .printonly { break-inside: avoid; }
+  .verdict { transition: none; }
+}
 
 @media (prefers-reduced-motion: no-preference) {
   .verdict { transition: background-color .2s, border-color .2s; }
@@ -261,6 +290,13 @@ summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
     </div>
   </section>
 
+  <section class="block printonly" aria-labelledby="hConds">
+    <h2 id="hConds">測定条件</h2>
+    <div class="tablewrap">
+      <table class="conds" id="tConds"></table>
+    </div>
+  </section>
+
   <section class="verdict" id="verdict" aria-live="polite" hidden>
     <div>
       <p class="eyebrow" id="vEyebrow">管理区分</p>
@@ -279,12 +315,14 @@ summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
   </section>
 
   <details id="proc">
-    <summary>計算過程を見る</summary>
+    <summary>計算過程<span class="noprint">を見る</span></summary>
     <div class="proc" id="procBody"></div>
   </details>
 
   <div class="actions">
     <button type="button" class="btn primary" id="btnCopy">結果をコピー</button>
+    <button type="button" class="btn" id="btnPrint">印刷 / PDF</button>
+    <button type="button" class="btn" id="btnXlsx">Excel に保存</button>
     <span class="msg" id="msgCopy" role="status"></span>
   </div>
   <textarea id="copyFallback" class="copyfb" readonly hidden aria-label="結果のテキスト"></textarea>
@@ -401,6 +439,7 @@ function classify(EA1, EA2, B, E) {
   var SAMPLE = { d1: '2.9\n5.6\n4.1\n7.3\n3.6', d2: '', E: '20', unit: 'ppm', B: '14.3', loq: '', tenth: false, days: 1, kind: 'A' };
   var isSample = false;
   var lastText = '';
+  var last = null;
   var prevUnit = '';
 
   function sig(x, d) {
@@ -562,7 +601,9 @@ function classify(EA1, EA2, B, E) {
     }
 
     renderProc(dayIdx, res, ev, E, mA, days);
+    renderConds(st, E, loq, mA, mB, U);
     lastText = buildText(st, dayIdx, res, ev, kubun, Bmax, E, U, mA, mB, days, repl, hasErr);
+    last = { st: st, dayIdx: dayIdx, res: res, ev: ev, kubun: kubun, B: Bmax, E: E, loq: loq, U: U, mA: mA, mB: mB, days: days, repl: repl, hasErr: hasErr };
     prevUnit = st.unit;
     save();
   }
@@ -577,6 +618,192 @@ function classify(EA1, EA2, B, E) {
     if (ev.EA2 > E) r.push('第2評価値が管理濃度を超える');
     if (hasB && B > 1.5 * E) r.push(mB + '測定値が管理濃度の1.5倍を超える');
     return r.join('、');
+  }
+
+  // 測定条件（印刷と Excel で共通）
+  function condRows(st, E, loq, mA, mB, U, stamp) {
+    var us = U ? ' ' + U : '';
+    return [
+      ['測定方法', mA + '・' + mB + '測定（' + (st.days === 2 ? '2日' : '1日') + '）'],
+      ['管理濃度', E > 0 ? sig(E, 4) + us : '（未入力）'],
+      ['単位', st.unit],
+      [mB + '測定値', st.B.trim() ? st.B.trim() + us : '（なし）'],
+      ['定量下限', loq > 0 ? sig(loq, 4) + us : '（未入力）'],
+      ['1/10 の扱い', st.tenth ? '管理濃度の1/10未満を1/10とみなす（第2条第3項を適用）' : '適用しない'],
+      stamp
+    ];
+  }
+  // 印刷用の測定条件
+  function renderConds(st, E, loq, mA, mB, U) {
+    var rows = condRows(st, E, loq, mA, mB, U, ['印刷日時', printedAt()]);
+    $('tConds').innerHTML = '<tbody>' + rows.map(function (r) {
+      return '<tr><th>' + esc(r[0]) + '</th><td>' + esc(r[1]) + '</td></tr>';
+    }).join('') + '</tbody>';
+  }
+  function printedAt() {
+    var d = new Date();
+    function p2(n) { return (n < 10 ? '0' : '') + n; }
+    return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+  }
+
+  // ---- Excel（.xlsx）出力：外部ライブラリを使わず、無圧縮の ZIP に XML を詰めて作る ----
+  var CRC = (function () {
+    var t = [];
+    for (var n = 0; n < 256; n++) {
+      var c = n;
+      for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+  function crc32(b) {
+    var c = 0xFFFFFFFF;
+    for (var i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  function zip(files) {
+    var enc = new TextEncoder(), parts = [], central = [], off = 0;
+    var d = new Date();
+    var time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+    var date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+    function hdr(size) { var a = new Uint8Array(size); return { a: a, v: new DataView(a.buffer) }; }
+    files.forEach(function (f) {
+      var name = enc.encode(f.name), data = enc.encode(f.text), crc = crc32(data);
+      var h = hdr(30), v = h.v;
+      v.setUint32(0, 0x04034b50, true); v.setUint16(4, 20, true); v.setUint16(6, 0x0800, true); v.setUint16(8, 0, true);
+      v.setUint16(10, time, true); v.setUint16(12, date, true); v.setUint32(14, crc, true);
+      v.setUint32(18, data.length, true); v.setUint32(22, data.length, true); v.setUint16(26, name.length, true); v.setUint16(28, 0, true);
+      var c = hdr(46), w = c.v;
+      w.setUint32(0, 0x02014b50, true); w.setUint16(4, 20, true); w.setUint16(6, 20, true); w.setUint16(8, 0x0800, true); w.setUint16(10, 0, true);
+      w.setUint16(12, time, true); w.setUint16(14, date, true); w.setUint32(16, crc, true);
+      w.setUint32(20, data.length, true); w.setUint32(24, data.length, true); w.setUint16(28, name.length, true);
+      w.setUint32(42, off, true);
+      parts.push(h.a, name, data);
+      central.push(c.a, name);
+      off += 30 + name.length + data.length;
+    });
+    var cdSize = central.reduce(function (a, b) { return a + b.length; }, 0);
+    var e = hdr(22), x = e.v;
+    x.setUint32(0, 0x06054b50, true); x.setUint16(8, files.length, true); x.setUint16(10, files.length, true);
+    x.setUint32(12, cdSize, true); x.setUint32(16, off, true);
+    return new Blob(parts.concat(central, [e.a]), { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
+  function xesc(s) {
+    return String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  // セルは 文字列 / 数値 / null、または { v: 値, s: スタイル番号 }。スタイル 1=太字、2=0.0000
+  function sheetXml(rows, widths) {
+    var body = rows.map(function (row, ri) {
+      var cells = row.map(function (c, ci) {
+        if (c === null || c === undefined || c === '') return '';
+        var v = c, st = 0;
+        if (typeof c === 'object') { v = c.v; st = c.s || 0; }
+        var ref = String.fromCharCode(65 + ci) + (ri + 1);
+        var sa = st ? ' s="' + st + '"' : '';
+        if (typeof v === 'number') return Number.isFinite(v) ? '<c r="' + ref + '"' + sa + '><v>' + v + '</v></c>' : '';
+        return '<c r="' + ref + '"' + sa + ' t="inlineStr"><is><t xml:space="preserve">' + xesc(v) + '</t></is></c>';
+      }).join('');
+      return '<row r="' + (ri + 1) + '">' + cells + '</row>';
+    }).join('');
+    var cols = '<cols>' + widths.map(function (w, i) { return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>'; }).join('') + '</cols>';
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+      cols + '<sheetData>' + body + '</sheetData></worksheet>';
+  }
+  function xlsxBlob(sheets) {
+    var ns = 'http://schemas.openxmlformats.org/';
+    var head = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+    var files = [
+      { name: '[Content_Types].xml', text: head + '<Types xmlns="' + ns + 'package/2006/content-types">' +
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+        '<Default Extension="xml" ContentType="application/xml"/>' +
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+        '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+        sheets.map(function (sh, i) { return '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'; }).join('') +
+        '</Types>' },
+      { name: '_rels/.rels', text: head + '<Relationships xmlns="' + ns + 'package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="' + ns + 'officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+      { name: 'xl/workbook.xml', text: head + '<workbook xmlns="' + ns + 'spreadsheetml/2006/main" xmlns:r="' + ns + 'officeDocument/2006/relationships"><sheets>' +
+        sheets.map(function (sh, i) { return '<sheet name="' + xesc(sh.name) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>'; }).join('') +
+        '</sheets></workbook>' },
+      { name: 'xl/_rels/workbook.xml.rels', text: head + '<Relationships xmlns="' + ns + 'package/2006/relationships">' +
+        sheets.map(function (sh, i) { return '<Relationship Id="rId' + (i + 1) + '" Type="' + ns + 'officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>'; }).join('') +
+        '<Relationship Id="rId' + (sheets.length + 1) + '" Type="' + ns + 'officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>' },
+      { name: 'xl/styles.xml', text: head + '<styleSheet xmlns="' + ns + 'spreadsheetml/2006/main">' +
+        '<numFmts count="1"><numFmt numFmtId="164" formatCode="0.0000"/></numFmts>' +
+        '<fonts count="2"><font><sz val="11"/><name val="Yu Gothic"/></font><font><b/><sz val="11"/><name val="Yu Gothic"/></font></fonts>' +
+        '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>' +
+        '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+        '<cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+        '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
+        '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>' +
+        '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
+        '</styleSheet>' }
+    ];
+    sheets.forEach(function (sh, i) { files.push({ name: 'xl/worksheets/sheet' + (i + 1) + '.xml', text: sheetXml(sh.rows, sh.widths) }); });
+    return zip(files);
+  }
+
+  // 「結果」と「測定値」の2シート
+  function buildSheets(L) {
+    var B = function (v) { return { v: v, s: 1 }; };
+    var LOG = function (v) { return { v: v, s: 2 }; };
+    var U = L.U || '', E = L.E, ev = L.ev;
+    var hasB = Number.isFinite(L.B);
+    // 濃度は画面と同じ有効数字（判定の境界をまたいで見えない桁数）、log は全桁を 0.0000 表示で持つ
+    var lims = [E, 1.5 * E];
+    var C = function (x) { return Number(sigKeep(x, lims, 4)); };
+    var R = function (x) { return Number(fixKeep(x / E, [1, 1.5], 2)); };
+    var S4 = function (x) { return Number(sig(x, 4)); };
+    var r = [[B('作業環境測定の計算')], ['作業環境評価基準（昭和63年労働省告示第79号）'], []];
+    r.push([B('測定条件')]);
+    condRows(L.st, E, L.loq, L.mA, L.mB, L.U, ['出力日時', printedAt()]).forEach(function (c) { r.push(c); });
+    r.push([], [B('評価'), null, B('単位'), B('管理濃度比')]);
+    if (ev) {
+      r.push(['管理区分', B(['', '第1管理区分', '第2管理区分', '第3管理区分'][L.kubun])]);
+      r.push(['第1評価値 E' + L.mA + '1', C(ev.EA1), U, R(ev.EA1)]);
+      r.push(['第2評価値 E' + L.mA + '2', C(ev.EA2), U, R(ev.EA2)]);
+      if (hasB) r.push([L.mB + '測定値（最大）', C(L.B), U, R(L.B)]);
+      r.push(['管理濃度', E, U]);
+      r.push(['判定理由', reasonText(L.kubun, ev, L.B, E, L.mA, L.mB)]);
+      r.push(['log 評価値の平均', LOG(ev.lm)]);
+      r.push(['log 分散（' + (L.days === 2 ? '日内＋日間' : '＋0.084') + '）', LOG(ev.v)]);
+    } else {
+      r.push(['管理区分', L.hasErr ? '判定できません（読み取れない値があります）' : '判定なし（管理濃度または測定値が不足）']);
+    }
+    r.push([], [B('統計量')].concat(L.dayIdx.map(function (k) { return B(L.days === 2 ? k + '日目' : L.mA + '測定'); })));
+    function srow(label, fn) {
+      r.push([label].concat(L.dayIdx.map(function (k) { var s = L.res[k].s; return s ? fn(s) : null; })));
+    }
+    srow('測定値の数 n', function (s) { return s.n; });
+    srow('幾何平均 M', function (s) { return S4(s.M); });
+    srow('幾何標準偏差 σ', function (s) { return Number(f3(s.S)); });
+    srow('log M', function (s) { return LOG(s.logM); });
+    srow('log σ', function (s) { return LOG(s.logS); });
+    srow('算術平均', function (s) { return S4(s.AM); });
+    srow('最大値', function (s) { return S4(s.max); });
+    srow('最小値', function (s) { return S4(s.min); });
+    if (L.repl.length) r.push([], ['※置き換えた値で計算しています（' + L.repl.join('、') + '）']);
+
+    var m = [[B('日'), B('#'), B('入力'), B('計算に用いた値'), B('置換'), B('log')]];
+    L.dayIdx.forEach(function (k) {
+      L.res[k].used.forEach(function (o, i) {
+        var tag = /tenth/.test(o.tag) ? '管理濃度の1/10' : (/loq/.test(o.tag) ? '定量下限' : '');
+        m.push([L.days === 2 ? k + '日目' : '1日目', i + 1, o.src, S4(o.v), tag, LOG(Math.log10(o.v))]);
+      });
+    });
+    return [
+      { name: '結果', rows: r, widths: [26, 22, 10, 12] },
+      { name: '測定値', rows: m, widths: [8, 5, 12, 15, 16, 10] }
+    ];
+  }
+
+  function xlsxName() {
+    var d = new Date();
+    function p2(n) { return (n < 10 ? '0' : '') + n; }
+    return 'sagyo-kankyo_' + d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) + '_' + p2(d.getHours()) + p2(d.getMinutes()) + '.xlsx';
   }
 
   function renderProc(dayIdx, res, ev, E, mA, days) {
@@ -674,6 +901,30 @@ function classify(EA1, EA2, B, E) {
         }, fallback);
       } else { fallback(); }
     } catch (e) { fallback(); }
+  });
+
+  // 印刷時は計算過程を開き、日時を更新する。Ctrl+P などからの印刷も同じ扱い
+  var procWasOpen = false, printing = false;
+  window.addEventListener('beforeprint', function () {
+    if (!printing) { procWasOpen = $('proc').open; printing = true; }
+    $('proc').open = true;
+    render();
+  });
+  window.addEventListener('afterprint', function () { $('proc').open = procWasOpen; printing = false; });
+  $('btnPrint').addEventListener('click', function () { window.print(); });
+  $('btnXlsx').addEventListener('click', function () {
+    var msg = $('msgCopy');
+    try {
+      var blob = xlsxBlob(buildSheets(last));
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = xlsxName();
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
+      msg.textContent = 'Excel ファイルを保存しました';
+    } catch (e) {
+      msg.textContent = 'Excel ファイルを作れませんでした（' + e.message + '）';
+    }
   });
 
   if (!load()) { writeState(SAMPLE); isSample = true; }
