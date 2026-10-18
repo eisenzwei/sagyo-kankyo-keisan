@@ -321,8 +321,8 @@ summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; b
 
   <div class="actions">
     <button type="button" class="btn primary" id="btnCopy">結果をコピー</button>
-    <button type="button" class="btn" id="btnPrint">PDFで保存</button>
-    <button type="button" class="btn" id="btnXlsx">Excelで保存</button>
+    <button type="button" class="btn" id="btnPrint">印刷</button>
+    <button type="button" class="btn" id="btnXlsx">Excel形式で保存</button>
     <span class="msg" id="msgCopy" role="status"></span>
   </div>
   <textarea id="copyFallback" class="copyfb" readonly hidden aria-label="結果のテキスト"></textarea>
@@ -912,7 +912,7 @@ function classify(EA1, EA2, B, E) {
   });
   window.addEventListener('afterprint', function () { $('proc').open = procWasOpen; printing = false; });
   $('btnPrint').addEventListener('click', function () {
-    $('msgCopy').textContent = '印刷画面の送信先で「PDFとして保存」を選んでください';
+    $('msgCopy').textContent = 'PDFにするときは、印刷画面の送信先で「PDFとして保存」を選んでください';
     window.print();
   });
   $('btnXlsx').addEventListener('click', function () {
