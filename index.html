@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>作業環境測定の計算</title>
+<meta name="description" content="作業環境評価基準（昭和63年労働省告示第79号）に基づく幾何平均・幾何標準偏差・評価値・管理区分の計算">
+<meta name="theme-color" content="#0b5d64">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="作業環境測定">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style>
+<style>
+/* Layout: 測定記録表のような一枚もの。入力 → 判定 → 統計量 → 計算過程 の順に縦へ流す */
+:root {
+  --bg: #edf1f0;
+  --surface: #fbfcfc;
+  --field: #ffffff;
+  --ink: #152221;
+  --muted: #556563;
+  --line: #cdd8d6;
+  --accent: #0b5d64;
+  --accent-ink: #ffffff;
+  --accent-soft: #d8e9ea;
+  --k1: #1b6f41; --k1-bg: #e0f1e6;
+  --k2: #8a5900; --k2-bg: #fbefd3;
+  --k3: #ad231b; --k3-bg: #fbe1de;
+  --f-body: "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic UI", Meiryo, system-ui, sans-serif;
+  --f-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1615; --surface: #172120; --field: #111a19; --ink: #e3ebe9; --muted: #98a7a4; --line: #2b3a37;
+    --accent: #5db4bb; --accent-ink: #0a1514; --accent-soft: #1b3436;
+    --k1: #74d29c; --k1-bg: #16301f; --k2: #f0b84f; --k2-bg: #33280e; --k3: #ff8c82; --k3-bg: #3b1916;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1615; --surface: #172120; --field: #111a19; --ink: #e3ebe9; --muted: #98a7a4; --line: #2b3a37;
+  --accent: #5db4bb; --accent-ink: #0a1514; --accent-soft: #1b3436;
+  --k1: #74d29c; --k1-bg: #16301f; --k2: #f0b84f; --k2-bg: #33280e; --k3: #ff8c82; --k3-bg: #3b1916;
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: 15px;
+  line-height: 1.65;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 48px;
+}
+.wrap { max-width: 620px; margin: 0 auto; display: grid; gap: 18px; }
+.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; }
+
+/* 見出し */
+.head { display: grid; gap: 4px; }
+.eyebrow { margin: 0; font-size: 12px; color: var(--muted); letter-spacing: .05em; }
+h1 { margin: 0; font-size: 25px; line-height: 1.3; font-weight: 700; text-wrap: balance; }
+.lede { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+h2 { margin: 0; font-size: 16px; font-weight: 700; }
+
+/* 入力パネル */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  display: grid;
+  gap: 16px;
+}
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 360px) { .row2 { grid-template-columns: 1fr; } }
+
+.seg { border: 0; margin: 0; padding: 0; min-width: 0; }
+.seg legend, .lab { font-size: 12.5px; color: var(--muted); padding: 0; margin-bottom: 6px; letter-spacing: .03em; }
+.opts { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--field); }
+.opts label { flex: 1; position: relative; min-width: 0; }
+.opts label + label { border-left: 1px solid var(--line); }
+.opts input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.opts span { display: block; text-align: center; padding: 9px 4px; font-size: 14px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.opts input:checked + span { background: var(--accent); color: var(--accent-ink); }
+.opts input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -4px; }
+
+.field { display: grid; min-width: 0; }
+.lab { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.lab .hint { font-size: 11.5px; letter-spacing: 0; }
+textarea, input[type="text"], select {
+  font: inherit;
+  font-size: 16px;
+  color: var(--ink);
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+textarea { font-family: var(--f-num); line-height: 1.5; resize: vertical; min-height: 104px; }
+input[type="text"] { font-family: var(--f-num); }
+textarea:focus-visible, input[type="text"]:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+.unitbox { display: flex; gap: 8px; }
+.unitbox input { flex: 1; }
+.unitbox select { width: auto; flex: none; }
+
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; cursor: pointer; }
+.check input { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); flex: none; }
+.check small { display: block; color: var(--muted); font-size: 12px; }
+
+.msg { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+.msg.err { color: var(--k3); }
+.msg:empty { display: none; }
+
+.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.btn {
+  font: inherit; font-size: 14px; font-weight: 700;
+  padding: 8px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: transparent; color: var(--ink);
+}
+.btn:hover { border-color: var(--accent); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.chip { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--ink); margin-left: auto; }
+
+/* 判定 */
+.verdict {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  background: var(--surface);
+}
+.verdict.k1 { background: var(--k1-bg); border-color: var(--k1); }
+.verdict.k2 { background: var(--k2-bg); border-color: var(--k2); }
+.verdict.k3 { background: var(--k3-bg); border-color: var(--k3); }
+.kubun { margin: 0; font-size: 28px; font-weight: 700; line-height: 1.2; }
+.verdict.k1 .kubun { color: var(--k1); }
+.verdict.k2 .kubun { color: var(--k2); }
+.verdict.k3 .kubun { color: var(--k3); }
+.reason { margin: 0; font-size: 13.5px; }
+.ev { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 12px; margin: 0; }
+.ev div { min-width: 0; }
+.ev dt { font-size: 12px; color: var(--muted); }
+.ev dd { margin: 0; }
+.ev .val { font-family: var(--f-num); font-variant-numeric: tabular-nums; font-size: 21px; font-weight: 600; line-height: 1.3; }
+.ev .u { font-size: 12px; color: var(--muted); margin-left: 3px; font-family: var(--f-body); font-weight: 400; }
+.ev .ratio { font-size: 12px; color: var(--muted); }
+
+/* 統計量 */
+.block { display: grid; gap: 10px; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 8px 12px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+tr:last-child th, tr:last-child td { border-bottom: 0; }
+thead th { font-size: 12px; color: var(--muted); font-weight: 400; background: var(--bg); }
+td.n { text-align: right; font-family: var(--f-num); font-variant-numeric: tabular-nums; }
+th.n { text-align: right; }
+tbody th { font-weight: 400; }
+tr.key td.n { font-weight: 600; font-size: 15px; }
+.sym { color: var(--muted); font-family: var(--f-num); font-size: 12px; margin-left: 4px; }
+
+/* 計算過程 */
+details { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+summary { cursor: pointer; padding: 12px 14px; font-weight: 700; font-size: 14px; }
+summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 10px; }
+.proc { padding: 0 14px 14px; display: grid; gap: 12px; font-size: 13px; min-width: 0; }
+.proc h3 { margin: 0; font-size: 13px; color: var(--muted); font-weight: 700; }
+.proc .tablewrap table { font-size: 13px; }
+.formula { font-family: var(--f-num); font-size: 12.5px; line-height: 1.7; background: var(--bg); border-radius: 8px; padding: 10px 12px; overflow-x: auto; white-space: pre; margin: 0; }
+.tag { font-size: 11px; color: var(--k2); margin-left: 4px; font-family: var(--f-body); }
+
+.copyfb { font-family: var(--f-num); font-size: 13px; min-height: 160px; }
+.foot { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+.foot p { margin: 0; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .verdict { transition: background-color .2s, border-color .2s; }
+}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="head">
+    <p class="eyebrow">作業環境評価基準（昭和63年労働省告示第79号）</p>
+    <h1>作業環境測定の計算</h1>
+    <p class="lede">測定値を貼り付けると、幾何平均・幾何標準偏差と、第1・第2評価値、管理区分を計算します。</p>
+  </header>
+
+  <section class="panel" aria-label="入力">
+    <div class="row2">
+      <fieldset class="seg">
+        <legend>測定日数</legend>
+        <div class="opts">
+          <label><input type="radio" name="days" id="days1" value="1" checked><span>1日</span></label>
+          <label><input type="radio" name="days" id="days2" value="2"><span>2日</span></label>
+        </div>
+      </fieldset>
+      <fieldset class="seg">
+        <legend>測定方法</legend>
+        <div class="opts">
+          <label><input type="radio" name="kind" id="kindA" value="A" checked><span>A・B測定</span></label>
+          <label><input type="radio" name="kind" id="kindC" value="C"><span>C・D測定</span></label>
+        </div>
+      </fieldset>
+    </div>
+
+    <div class="field">
+      <label class="lab" for="d1"><span id="labD1">A測定値（1日目）</span><span class="hint">改行・カンマ・スペース区切り</span></label>
+      <textarea id="d1" rows="4" spellcheck="false" autocomplete="off"></textarea>
+      <p class="msg" id="msg1"></p>
+    </div>
+
+    <div class="field" id="wrapD2" hidden>
+      <label class="lab" for="d2"><span id="labD2">A測定値（2日目）</span></label>
+      <textarea id="d2" rows="4" spellcheck="false" autocomplete="off"></textarea>
+      <p class="msg" id="msg2"></p>
+    </div>
+
+    <div class="field">
+      <label class="lab" for="E">管理濃度</label>
+      <div class="unitbox">
+        <input type="text" id="E" inputmode="decimal" autocomplete="off" placeholder="空欄なら統計量のみ">
+        <select id="unit" aria-label="単位">
+          <option value="ppm">ppm</option>
+          <option value="mg/m³">mg/m³</option>
+          <option value="本/cm³">本/cm³</option>
+          <option value="換算値">換算値</option>
+        </select>
+      </div>
+      <p class="msg" id="msgE"></p>
+    </div>
+
+    <div class="row2">
+      <div class="field">
+        <label class="lab" for="B" id="labB">B測定値</label>
+        <input type="text" id="B" autocomplete="off" placeholder="任意・複数可">
+      </div>
+      <div class="field">
+        <label class="lab" for="loq">定量下限</label>
+        <input type="text" id="loq" inputmode="decimal" autocomplete="off" placeholder="任意">
+      </div>
+    </div>
+    <p class="msg" id="msgB"></p>
+
+    <label class="check">
+      <input type="checkbox" id="tenth">
+      <span>管理濃度の1/10未満の測定値を1/10とみなす<small>評価基準 第2条第3項（任意適用）</small></span>
+    </label>
+
+    <div class="actions">
+      <button type="button" class="btn" id="btnSample">例を入れる</button>
+      <button type="button" class="btn" id="btnClear">クリア</button>
+      <span class="chip" id="chipSample" hidden>例：トルエン（管理濃度 20 ppm）</span>
+    </div>
+  </section>
+
+  <section class="verdict" id="verdict" aria-live="polite" hidden>
+    <div>
+      <p class="eyebrow" id="vEyebrow">管理区分</p>
+      <p class="kubun" id="vKubun">—</p>
+    </div>
+    <dl class="ev" id="vEv"></dl>
+    <p class="reason" id="vReason"></p>
+  </section>
+
+  <section class="block" aria-labelledby="hStats">
+    <h2 id="hStats">統計量</h2>
+    <div class="tablewrap">
+      <table id="tStats"></table>
+    </div>
+    <p class="msg" id="msgStats"></p>
+  </section>
+
+  <details id="proc">
+    <summary>計算過程を見る</summary>
+    <div class="proc" id="procBody"></div>
+  </details>
+
+  <div class="actions">
+    <button type="button" class="btn primary" id="btnCopy">結果をコピー</button>
+    <span class="msg" id="msgCopy" role="status"></span>
+  </div>
+  <textarea id="copyFallback" class="copyfb" readonly hidden aria-label="結果のテキスト"></textarea>
+
+  <footer class="foot">
+    <p>対数はすべて常用対数。幾何標準偏差は log 値の標本標準偏差（n−1）から求めています。</p>
+    <p>1日：log EA1 = log M1 + 1.645√(log²σ1 + 0.084)、log EA2 = log M1 + 1.151(log²σ1 + 0.084)</p>
+    <p>2日：日間の平均と、日内分散の平均＋(log M1 − log M2)²/2 で計算（評価基準 第3条第2項）。</p>
+    <p>定量下限未満の値は定量下限の値とみなします（第2条第2項）。「&lt;0.05」「ND」の形でも入力できます。</p>
+    <p>有機溶剤の混合物は、測定値ごとの換算値（C1/E1 + C2/E2 + …）を入力し、単位を「換算値」にしてください（第2条第4項）。</p>
+  </footer>
+</main>
+
+<script>
+/*CALC-START*/
+function toHalf(s) {
+  return String(s)
+    .replace(/[！-～]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+    .replace(/　/g, ' ')
+    .replace(/、/g, ',');
+}
+
+function num(s) {
+  var t = toHalf(s).trim();
+  if (!t) return NaN;
+  var x = Number(t);
+  return Number.isFinite(x) && x > 0 ? x : NaN;
+}
+
+// 測定値の文字列を読み取る。定量下限未満は定量下限の値に置き換える（第2条第2項）
+function parseList(raw, loq) {
+  var s = toHalf(raw).replace(/未満/g, '').replace(/<\s+/g, '<');
+  var toks = s.split(/[\s,;]+/).filter(Boolean);
+  var vals = [], errs = [];
+  toks.forEach(function (t) {
+    if (/^(nd|n\.d\.?|不検出|<)$/i.test(t)) {
+      if (loq > 0) vals.push({ src: t, v: loq, tag: 'loq' });
+      else errs.push('「' + t + '」を計算に入れるには定量下限を入力してください');
+      return;
+    }
+    var m = t.match(/^<(\d*\.?\d+(?:e[+-]?\d+)?)$/i);
+    if (m) {
+      var q = parseFloat(m[1]);
+      if (q > 0) vals.push({ src: t, v: q, tag: 'loq' });
+      else errs.push('「' + t + '」の定量下限が0以下です');
+      return;
+    }
+    var x = Number(t);
+    if (!Number.isFinite(x)) { errs.push('「' + t + '」は数値として読めません'); return; }
+    if (x <= 0) { errs.push('0以下の値（' + t + '）は対数をとれません。定量下限未満は「<0.05」のように入力してください'); return; }
+    if (loq > 0 && x < loq) vals.push({ src: t, v: loq, tag: 'loq' });
+    else vals.push({ src: t, v: x, tag: '' });
+  });
+  return { vals: vals, errs: errs };
+}
+
+// 管理濃度の1/10未満を1/10とみなす（第2条第3項）
+function applyTenth(vals, E) {
+  return vals.map(function (o) {
+    if (E > 0 && o.v < E / 10) return { src: o.src, v: E / 10, tag: o.tag ? o.tag + ' tenth' : 'tenth' };
+    return o;
+  });
+}
+
+function stats(values) {
+  var n = values.length;
+  var logs = values.map(function (v) { return Math.log10(v); });
+  var lm = logs.reduce(function (a, b) { return a + b; }, 0) / n;
+  var ss = logs.reduce(function (a, l) { return a + (l - lm) * (l - lm); }, 0);
+  var ls = n > 1 ? Math.sqrt(ss / (n - 1)) : NaN;
+  var am = values.reduce(function (a, b) { return a + b; }, 0) / n;
+  return {
+    n: n, logs: logs, logM: lm, logS: ls,
+    M: Math.pow(10, lm), S: Math.pow(10, ls), AM: am,
+    max: Math.max.apply(null, values), min: Math.min.apply(null, values)
+  };
+}
+
+function evaluate1(s1) {
+  var v = s1.logS * s1.logS + 0.084;
+  var lEA1 = s1.logM + 1.645 * Math.sqrt(v);
+  var lEA2 = s1.logM + 1.151 * v;
+  return { lm: s1.logM, v: v, lEA1: lEA1, lEA2: lEA2, EA1: Math.pow(10, lEA1), EA2: Math.pow(10, lEA2) };
+}
+
+function evaluate2(s1, s2) {
+  var lm = (s1.logM + s2.logM) / 2;
+  var d = s1.logM - s2.logM;
+  var v = (s1.logS * s1.logS + s2.logS * s2.logS) / 2 + (d * d) / 2;
+  var lEA1 = lm + 1.645 * Math.sqrt(v);
+  var lEA2 = lm + 1.151 * v;
+  return { lm: lm, v: v, d: d, lEA1: lEA1, lEA2: lEA2, EA1: Math.pow(10, lEA1), EA2: Math.pow(10, lEA2) };
+}
+
+// 管理区分（第2条第1項）。B は B測定（D測定）の最大値、無ければ NaN
+function classify(EA1, EA2, B, E) {
+  var hasB = Number.isFinite(B);
+  if (!hasB) {
+    if (EA1 < E) return 1;
+    if (EA2 <= E) return 2;
+    return 3;
+  }
+  if (EA1 < E && B < E) return 1;
+  if (EA2 <= E && B <= 1.5 * E) return 2;
+  return 3;
+}
+/*CALC-END*/
+
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var KEY = 'gm-eval-v1';
+  var SAMPLE = { d1: '2.9\n5.6\n4.1\n7.3\n3.6', d2: '', E: '20', unit: 'ppm', B: '14.3', loq: '', tenth: false, days: 1, kind: 'A' };
+  var isSample = false;
+  var lastText = '';
+
+  function sig(x, d) {
+    if (!Number.isFinite(x)) return '—';
+    var y = Number(x.toPrecision(d));
+    if (Math.abs(y) >= 1e6 || (Math.abs(y) < 1e-4 && y !== 0)) return y.toExponential(d - 1);
+    return String(y);
+  }
+  function f4(x) { return Number.isFinite(x) ? x.toFixed(4) : '—'; }
+  function f3(x) { return Number.isFinite(x) ? x.toFixed(3) : '—'; }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  function readState() {
+    return {
+      d1: $('d1').value, d2: $('d2').value, E: $('E').value, unit: $('unit').value,
+      B: $('B').value, loq: $('loq').value, tenth: $('tenth').checked,
+      days: $('days2').checked ? 2 : 1, kind: $('kindC').checked ? 'C' : 'A'
+    };
+  }
+  function writeState(st) {
+    $('d1').value = st.d1 || ''; $('d2').value = st.d2 || ''; $('E').value = st.E || '';
+    $('unit').value = st.unit || 'ppm'; $('B').value = st.B || ''; $('loq').value = st.loq || '';
+    $('tenth').checked = !!st.tenth;
+    $('days1').checked = st.days !== 2; $('days2').checked = st.days === 2;
+    $('kindA').checked = st.kind !== 'C'; $('kindC').checked = st.kind === 'C';
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify({ st: readState(), sample: isSample })); } catch (e) {}
+  }
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (raw) {
+        var o = JSON.parse(raw);
+        // 例のままなら最新の例に差し替え、自分で入力した値はそのまま復元する
+        if (o && o.st && !o.sample) { writeState(o.st); isSample = false; return true; }
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function render() {
+    var st = readState();
+    var days = st.days, kind = st.kind;
+    var mA = kind === 'C' ? 'C' : 'A', mB = kind === 'C' ? 'D' : 'B';
+    var unitIsIdx = st.unit === '換算値';
+    var U = unitIsIdx ? '' : st.unit;
+
+    $('labD1').textContent = days === 2 ? mA + '測定値（1日目）' : mA + '測定値';
+    $('labD2').textContent = mA + '測定値（2日目）';
+    $('labB').textContent = mB + '測定値';
+    $('wrapD2').hidden = days !== 2;
+    $('chipSample').hidden = !isSample;
+
+    var E = num(st.E);
+    var loq = num(st.loq);
+    $('msgE').className = 'msg';
+    $('msgE').textContent = '';
+    if (st.E.trim() && !(E > 0)) { $('msgE').className = 'msg err'; $('msgE').textContent = '管理濃度は0より大きい数値で入力してください'; }
+    else if (unitIsIdx && E !== 1) { $('msgE').textContent = '換算値で評価するときは管理濃度を 1 にします'; }
+
+    // 測定値
+    var dayIdx = days === 2 ? [1, 2] : [1];
+    var res = {};
+    dayIdx.forEach(function (k) {
+      var p = parseList(st['d' + k], loq);
+      var used = st.tenth && E > 0 ? applyTenth(p.vals, E) : p.vals;
+      var msgs = p.errs.slice();
+      var s = null;
+      if (used.length >= 2) s = stats(used.map(function (o) { return o.v; }));
+      else if (st['d' + k].trim()) msgs.push('幾何標準偏差の計算には2つ以上の値が必要です');
+      var note = '';
+      if (s && s.n < 5) note = '測定値が' + s.n + '個です。評価基準上は原則5個以上の測定値を用います。';
+      var el = $('msg' + k);
+      if (msgs.length) { el.className = 'msg err'; el.textContent = msgs.join(' / '); }
+      else { el.className = 'msg'; el.textContent = note; }
+      res[k] = { p: p, used: used, s: s };
+    });
+
+    // B測定
+    var bp = parseList(st.B, loq);
+    var Bmax = bp.vals.length ? Math.max.apply(null, bp.vals.map(function (o) { return o.v; })) : NaN;
+    $('msgB').className = bp.errs.length ? 'msg err' : 'msg';
+    $('msgB').textContent = bp.errs.length ? mB + '測定値：' + bp.errs.join(' / ') : (bp.vals.length > 1 ? mB + '測定値は最大値 ' + sig(Bmax, 4) + ' を用います' : '');
+
+    // 統計量の表
+    var ready = dayIdx.every(function (k) { return res[k].s; });
+    var head = '<thead><tr><th>項目</th>' + dayIdx.map(function (k) { return '<th class="n">' + (days === 2 ? k + '日目' : mA + '測定') + '</th>'; }).join('') + '</tr></thead>';
+    function row(label, sym, fn, key) {
+      return '<tr' + (key ? ' class="key"' : '') + '><th>' + label + (sym ? '<span class="sym">' + sym + '</span>' : '') + '</th>' +
+        dayIdx.map(function (k) { var s = res[k].s; return '<td class="n">' + (s ? fn(s) : '—') + '</td>'; }).join('') + '</tr>';
+    }
+    var unitSuffix = U ? ' ' + U : '';
+    $('tStats').innerHTML = head + '<tbody>' +
+      row('測定値の数', 'n', function (s) { return s.n; }) +
+      row('幾何平均', days === 2 ? 'M1, M2' : 'M1', function (s) { return sig(s.M, 4) + unitSuffix; }, true) +
+      row('幾何標準偏差', days === 2 ? 'σ1, σ2' : 'σ1', function (s) { return f3(s.S); }, true) +
+      row('算術平均', '', function (s) { return sig(s.AM, 4) + unitSuffix; }) +
+      row('最大値', '', function (s) { return sig(s.max, 4) + unitSuffix; }) +
+      row('最小値', '', function (s) { return sig(s.min, 4) + unitSuffix; }) +
+      '</tbody>';
+
+    var repl = [];
+    dayIdx.forEach(function (k) {
+      var u = res[k].used;
+      var nl = u.filter(function (o) { return /loq/.test(o.tag); }).length;
+      var nt = u.filter(function (o) { return /tenth/.test(o.tag); }).length;
+      var pre = days === 2 ? k + '日目：' : '';
+      if (nl) repl.push(pre + '定量下限に置換 ' + nl + '件');
+      if (nt) repl.push(pre + '管理濃度の1/10に置換 ' + nt + '件');
+    });
+    $('msgStats').textContent = repl.length ? '置き換えた値で計算しています（' + repl.join('、') + '）' : '';
+
+    // 評価
+    var ev = null, kubun = 0;
+    var vd = $('verdict');
+    if (ready && E > 0) {
+      ev = days === 2 ? evaluate2(res[1].s, res[2].s) : evaluate1(res[1].s);
+      kubun = classify(ev.EA1, ev.EA2, Bmax, E);
+      vd.hidden = false;
+      vd.className = 'verdict k' + kubun;
+      $('vEyebrow').textContent = '管理区分（' + mA + (Number.isFinite(Bmax) ? '・' + mB : '') + '測定' + (days === 2 ? '・2日' : '・1日') + '）';
+      $('vKubun').textContent = ['', '第1管理区分', '第2管理区分', '第3管理区分'][kubun];
+      var cells = [
+        ['第1評価値 E' + mA + '1', ev.EA1],
+        ['第2評価値 E' + mA + '2', ev.EA2]
+      ];
+      if (Number.isFinite(Bmax)) cells.push([mB + '測定値', Bmax]);
+      $('vEv').innerHTML = cells.map(function (c) {
+        return '<div><dt>' + c[0] + '</dt><dd class="val">' + sig(c[1], 3) + (U ? '<span class="u">' + esc(U) + '</span>' : '') +
+          '</dd><dd class="ratio">管理濃度の ' + (c[1] / E).toFixed(2) + ' 倍</dd></div>';
+      }).join('');
+      $('vReason').textContent = reasonText(kubun, ev, Bmax, E, mA, mB) + '（管理濃度 ' + sig(E, 4) + unitSuffix + '）';
+    } else {
+      vd.hidden = true;
+    }
+
+    renderProc(dayIdx, res, ev, E, mA, days);
+    lastText = buildText(st, dayIdx, res, ev, kubun, Bmax, E, U, mA, mB, days, repl);
+    save();
+  }
+
+  function reasonText(k, ev, B, E, mA, mB) {
+    var hasB = Number.isFinite(B);
+    if (k === 1) return hasB ? '第1評価値と' + mB + '測定値がともに管理濃度未満' : '第1評価値が管理濃度未満';
+    if (k === 2) return hasB
+      ? '第2評価値が管理濃度以下、' + mB + '測定値が管理濃度の1.5倍以下で、第1管理区分の条件は満たさない'
+      : '第1評価値が管理濃度以上、第2評価値が管理濃度以下';
+    var r = [];
+    if (ev.EA2 > E) r.push('第2評価値が管理濃度を超える');
+    if (hasB && B > 1.5 * E) r.push(mB + '測定値が管理濃度の1.5倍を超える');
+    return r.join('、');
+  }
+
+  function renderProc(dayIdx, res, ev, E, mA, days) {
+    var html = '';
+    dayIdx.forEach(function (k) {
+      var r = res[k];
+      if (!r.used.length) return;
+      html += '<h3>' + (days === 2 ? k + '日目の' : '') + mA + '測定値と常用対数</h3><div class="tablewrap"><table><thead><tr><th class="n">#</th><th>入力</th><th class="n">計算に用いた値</th><th class="n">log</th></tr></thead><tbody>' +
+        r.used.map(function (o, i) {
+          var tag = /tenth/.test(o.tag) ? '<span class="tag">1/10</span>' : (/loq/.test(o.tag) ? '<span class="tag">下限</span>' : '');
+          return '<tr><td class="n">' + (i + 1) + '</td><td class="num">' + esc(o.src) + '</td><td class="n">' + sig(o.v, 4) + tag + '</td><td class="n">' + f4(Math.log10(o.v)) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+      if (r.s) {
+        html += '<pre class="formula">log M' + k + ' = Σlog / n = ' + f4(r.s.logM) + '  →  M' + k + ' = ' + sig(r.s.M, 4) +
+          '\nlog σ' + k + ' = √(Σ(log − log M' + k + ')² / (n−1)) = ' + f4(r.s.logS) + '  →  σ' + k + ' = ' + f3(r.s.S) + '</pre>';
+      }
+    });
+    if (ev) {
+      var L1 = f4(res[1].s.logS);
+      var t;
+      if (days === 1) {
+        t = 'log E' + mA + '1 = log M1 + 1.645 × √(log²σ1 + 0.084)\n' +
+          '          = ' + f4(ev.lm) + ' + 1.645 × √(' + L1 + '² + 0.084)\n' +
+          '          = ' + f4(ev.lEA1) + '  →  E' + mA + '1 = ' + sig(ev.EA1, 4) + '\n\n' +
+          'log E' + mA + '2 = log M1 + 1.151 × (log²σ1 + 0.084)\n' +
+          '          = ' + f4(ev.lm) + ' + 1.151 × (' + L1 + '² + 0.084)\n' +
+          '          = ' + f4(ev.lEA2) + '  →  E' + mA + '2 = ' + sig(ev.EA2, 4);
+      } else {
+        var L2 = f4(res[2].s.logS);
+        t = '(1/2)(log M1 + log M2) = ' + f4(ev.lm) + '\n' +
+          'V = (1/2)(log²σ1 + log²σ2) + (1/2)(log M1 − log M2)²\n' +
+          '  = (1/2)(' + L1 + '² + ' + L2 + '²) + (1/2)(' + f4(ev.d) + ')² = ' + f4(ev.v) + '\n\n' +
+          'log E' + mA + '1 = ' + f4(ev.lm) + ' + 1.645 × √' + f4(ev.v) + ' = ' + f4(ev.lEA1) + '  →  E' + mA + '1 = ' + sig(ev.EA1, 4) + '\n' +
+          'log E' + mA + '2 = ' + f4(ev.lm) + ' + 1.151 × ' + f4(ev.v) + ' = ' + f4(ev.lEA2) + '  →  E' + mA + '2 = ' + sig(ev.EA2, 4);
+      }
+      html += '<h3>評価値</h3><pre class="formula">' + esc(t) + '</pre>';
+    }
+    if (!html) html = '<p class="msg">測定値を入力すると、ここに計算の途中経過が出ます。</p>';
+    $('procBody').innerHTML = html;
+  }
+
+  function buildText(st, dayIdx, res, ev, kubun, B, E, U, mA, mB, days, repl) {
+    var us = U ? ' ' + U : '';
+    var lines = ['【作業環境測定の計算】'];
+    dayIdx.forEach(function (k) {
+      var s = res[k].s;
+      if (!s) return;
+      var pre = days === 2 ? k + '日目 ' : '';
+      lines.push(pre + mA + '測定 n=' + s.n + '  幾何平均 M' + k + '=' + sig(s.M, 4) + us + '  幾何標準偏差 σ' + k + '=' + f3(s.S));
+    });
+    if (repl.length) lines.push('※' + repl.join('、'));
+    if (ev) {
+      lines.push('第1評価値 E' + mA + '1=' + sig(ev.EA1, 3) + us + '（管理濃度の' + (ev.EA1 / E).toFixed(2) + '倍）');
+      lines.push('第2評価値 E' + mA + '2=' + sig(ev.EA2, 3) + us);
+      if (Number.isFinite(B)) lines.push(mB + '測定値=' + sig(B, 4) + us);
+      lines.push('管理濃度=' + sig(E, 4) + us);
+      lines.push('管理区分：' + ['', '第1管理区分', '第2管理区分', '第3管理区分'][kubun]);
+    }
+    return lines.join('\n');
+  }
+
+  function markEdited() { if (isSample) { isSample = false; } render(); }
+
+  ['d1', 'd2', 'E', 'B', 'loq'].forEach(function (id) { $(id).addEventListener('input', markEdited); });
+  ['unit', 'tenth', 'days1', 'days2', 'kindA', 'kindC'].forEach(function (id) {
+    $(id).addEventListener('change', function () {
+      if (id === 'unit' && $('unit').value === '換算値') $('E').value = '1';
+      markEdited();
+    });
+  });
+
+  $('btnSample').addEventListener('click', function () { writeState(SAMPLE); isSample = true; render(); });
+  $('btnClear').addEventListener('click', function () {
+    var st = readState();
+    writeState({ d1: '', d2: '', E: '', unit: st.unit, B: '', loq: '', tenth: st.tenth, days: st.days, kind: st.kind });
+    isSample = false; render(); $('d1').focus();
+  });
+
+  $('btnCopy').addEventListener('click', function () {
+    var fb = $('copyFallback');
+    var msg = $('msgCopy');
+    function fallback() {
+      fb.value = lastText; fb.hidden = false; fb.focus(); fb.select();
+      msg.textContent = 'テキストを選択しました。長押しでコピーしてください';
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(lastText).then(function () {
+          fb.hidden = true; msg.textContent = 'コピーしました';
+        }, fallback);
+      } else { fallback(); }
+    } catch (e) { fallback(); }
+  });
+
+  if (!load()) { writeState(SAMPLE); isSample = true; }
+  render();
+})();
+</script>
+
+</body></html>
